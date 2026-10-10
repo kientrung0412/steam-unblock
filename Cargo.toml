@@ -1,6 +1,6 @@
 [package]
 name = "steam-unblock"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Truy cập Steam khi bị nhà mạng chặn: proxy cục bộ + DNS-over-HTTPS + chia nhỏ TLS ClientHello"
 
