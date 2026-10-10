@@ -1,12 +1,14 @@
 mod check;
 mod dns;
 mod doh;
+mod hosts;
 mod proxy;
 mod sysproxy;
+mod transparent;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 /// Truy cập Steam khi bị nhà mạng chặn (DoH + chia nhỏ TLS ClientHello).
@@ -40,6 +42,27 @@ enum Cmd {
         #[arg(long, default_value_t = 4)]
         pieces: usize,
     },
+    /// Dành cho Steam client: trỏ tên miền Steam về máy qua file hosts + proxy trong suốt cổng 80/443
+    /// (cần Administrator/sudo). Ctrl+C sẽ gỡ file hosts.
+    Hosts {
+        /// IP loopback để lắng nghe và ghi vào file hosts
+        #[arg(long, default_value = "127.0.0.1")]
+        ip: IpAddr,
+        /// Tắt chia nhỏ ClientHello
+        #[arg(long)]
+        no_fragment: bool,
+        /// Không tải danh sách CM/content server từ Steam API
+        #[arg(long)]
+        no_dynamic: bool,
+        /// In thời gian từng kết nối
+        #[arg(short, long)]
+        verbose: bool,
+        /// Số mảnh cắt tên miền SNI trong ClientHello
+        #[arg(long, default_value_t = 4)]
+        pieces: usize,
+    },
+    /// Gỡ khối tên miền Steam khỏi file hosts (khi lần trước thoát không sạch)
+    Unhosts,
     /// Chạy DNS server cục bộ chuyển tiếp qua DNS-over-HTTPS (cho Steam client)
     Dns {
         #[arg(short, long, default_value = "127.0.0.1:53")]
@@ -90,6 +113,14 @@ async fn main() -> Result<()> {
                 sysproxy::clear();
                 println!("Đã tắt proxy tự động của hệ thống.");
             }
+        }
+        Cmd::Hosts { ip, no_fragment, no_dynamic, verbose, pieces } => {
+            let cfg = proxy::Config { port: 0, fragment: !no_fragment, verbose, pieces };
+            transparent::run(transparent::Options { ip, cfg, dynamic: !no_dynamic }, doh).await?;
+        }
+        Cmd::Unhosts => {
+            hosts::uninstall()?;
+            println!("Đã gỡ tên miền Steam khỏi {}", hosts::path().display());
         }
         Cmd::Dns { bind } => {
             tokio::select! {

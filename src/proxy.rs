@@ -41,6 +41,11 @@ pub async fn run(bind: SocketAddr, cfg: Config, doh: Arc<Doh>) -> Result<()> {
     println!("Proxy đang chạy tại http://{bind}");
     println!("PAC (chỉ Steam đi qua proxy): http://127.0.0.1:{}/proxy.pac", cfg.port);
     println!("Chia nhỏ ClientHello: {}", if cfg.fragment { "bật" } else { "tắt" });
+    serve(listener, cfg, doh).await
+}
+
+/// Phục vụ proxy trên một listener đã mở sẵn (dùng nội bộ cho chế độ `hosts`).
+pub async fn serve(listener: TcpListener, cfg: Config, doh: Arc<Doh>) -> Result<()> {
     loop {
         let (sock, peer) = listener.accept().await?;
         let (cfg, doh) = (cfg.clone(), doh.clone());
@@ -170,17 +175,26 @@ async fn connect(doh: &Arc<Doh>, host: &str, port: u16) -> Result<TcpStream> {
     dial(host, &ips, port).await
 }
 
-async fn resolve(doh: &Arc<Doh>, host: &str) -> Result<Vec<std::net::IpAddr>> {
+pub(crate) async fn resolve(doh: &Arc<Doh>, host: &str) -> Result<Vec<std::net::IpAddr>> {
     match doh.resolve(host).await {
         Ok(ips) => Ok(ips),
         Err(e) => {
             eprintln!("[proxy] DoH lỗi cho {host} ({e}), dùng DNS hệ thống");
-            Ok(tokio::net::lookup_host((host, 0)).await?.map(|a| a.ip()).collect())
+            // Bỏ IP loopback: ở chế độ `hosts` DNS hệ thống trả 127.0.0.1 → sẽ tự gọi lại chính mình.
+            let ips: Vec<_> = tokio::net::lookup_host((host, 0))
+                .await?
+                .map(|a| a.ip())
+                .filter(|ip| !ip.is_loopback())
+                .collect();
+            if ips.is_empty() {
+                bail!("không phân giải được {host}");
+            }
+            Ok(ips)
         }
     }
 }
 
-async fn dial(host: &str, ips: &[std::net::IpAddr], port: u16) -> Result<TcpStream> {
+pub(crate) async fn dial(host: &str, ips: &[std::net::IpAddr], port: u16) -> Result<TcpStream> {
     // Kiểu "Happy Eyeballs": IP đầu chưa xong sau 250ms thì thử song song IP tiếp theo,
     // tránh kẹt ~1s khi gói SYN bị rớt.
     let mut set = tokio::task::JoinSet::new();
@@ -218,7 +232,7 @@ async fn dial(host: &str, ips: &[std::net::IpAddr], port: u16) -> Result<TcpStre
 
 /// Tách ClientHello thành nhiều bản ghi TLS, mỗi bản ghi đi một gói TCP riêng.
 /// Tên miền SNI bị cắt vụn qua nhiều bản ghi để DPI không ghép lại kịp.
-async fn send_fragmented(up: &mut TcpStream, data: &[u8], host: &str, pieces: usize) -> Result<()> {
+pub(crate) async fn send_fragmented(up: &mut TcpStream, data: &[u8], host: &str, pieces: usize) -> Result<()> {
     let rec_len = data.get(3..5).map(|b| u16::from_be_bytes([b[0], b[1]]) as usize);
     let sni = find(data, host.as_bytes());
 
@@ -263,7 +277,7 @@ async fn send_fragmented(up: &mut TcpStream, data: &[u8], host: &str, pieces: us
 }
 
 /// Gửi từng phần thành gói TCP riêng (đã bật TCP_NODELAY).
-async fn send_chunks(up: &mut TcpStream, chunks: &[&[u8]]) -> Result<()> {
+pub(crate) async fn send_chunks(up: &mut TcpStream, chunks: &[&[u8]]) -> Result<()> {
     for (i, c) in chunks.iter().enumerate() {
         up.write_all(c).await?;
         up.flush().await?;
@@ -319,7 +333,7 @@ fn split_host_port(s: &str, default: u16) -> Result<(String, u16)> {
     }
 }
 
-fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
+pub(crate) fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() {
         return None;
     }

@@ -27,6 +27,8 @@ Push lên GitHub thì workflow `.github/workflows/release.yml` sẽ build sẵn 
 steam-unblock check          # kiểm tra Steam đang bị chặn kiểu gì
 steam-unblock                # chạy proxy tại 127.0.0.1:8899
 steam-unblock proxy --system # chạy proxy và tự cấu hình PAC cho hệ thống (Ctrl+C sẽ gỡ cấu hình)
+steam-unblock hosts          # cho Steam client: file hosts + proxy trong suốt (cần Administrator/sudo)
+steam-unblock unhosts        # gỡ khối tên miền Steam khỏi file hosts nếu lần trước thoát không sạch
 ```
 
 ### Trình duyệt / web Steam
@@ -35,7 +37,21 @@ Cách 2: tự đặt "Automatic proxy configuration URL" là `http://127.0.0.1:8
 Khi dùng PAC thì chỉ các tên miền Steam đi qua proxy, các trang khác vẫn đi thẳng.
 
 ### Steam client (ứng dụng)
-- Windows: Steam client đọc cấu hình proxy của hệ thống, nên `steam-unblock proxy --system` thường là đủ.
+Steam client (bộ cập nhật `steam.exe` và kết nối CM server) **không dùng PAC**, nên với `proxy --system`
+trình duyệt vào được Steam nhưng client vẫn báo *"Steam needs to be online to update"*. Hãy dùng chế độ `hosts`:
+
+1. Tắt `proxy --system` nếu đang chạy, thoát Steam hoàn toàn (kể cả ở khay hệ thống).
+2. Mở terminal bằng **Administrator** (macOS/Linux: `sudo`), chạy `steam-unblock hosts` và để cửa sổ mở.
+3. Mở Steam.
+
+Chế độ này ghi các tên miền Steam (cả danh sách CM/content server lấy từ Steam API) vào file hosts, trỏ về
+`127.0.0.1`, rồi lắng nghe cổng 80/443 (và cổng CM). Mỗi kết nối được đọc tên miền từ SNI/Host, phân giải
+bằng DoH và chuyển tiếp tới Steam với ClientHello đã chia nhỏ. TLS vẫn đầu-cuối, không cần cài chứng chỉ.
+Nhấn Ctrl+C để dừng: file hosts được trả lại như cũ (nếu bị tắt ngang, chạy `steam-unblock unhosts`).
+
+Nếu báo không mở được cổng 80/443: có chương trình khác chiếm cổng (IIS, XAMPP…), thử `--ip 127.0.0.2`.
+
+Cách khác:
 - Nếu nhà mạng chỉ chặn DNS: chạy `sudo steam-unblock dns` (Windows thì mở terminal bằng Administrator),
   rồi đặt DNS của máy thành `127.0.0.1`. Cách này áp dụng cho mọi ứng dụng.
   Lưu ý: chế độ `dns` **không** vượt được lọc SNI. Gặp trường hợp đó thì dùng `proxy`.
@@ -47,4 +63,6 @@ proxy --host 0.0.0.0    chia sẻ proxy cho các máy khác trong mạng LAN
 proxy --no-fragment     chỉ dùng DoH, không chia nhỏ gói
 proxy -v                in thời gian dns/connect của từng kết nối (tìm chỗ chậm)
 pac -p 8899             in nội dung file PAC
+hosts --no-dynamic      không tải danh sách CM/content server, chỉ dùng danh sách cố định
+hosts -v                in thời gian kết nối của từng tên miền
 ```
