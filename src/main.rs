@@ -1,6 +1,7 @@
 mod check;
 mod dns;
 mod doh;
+mod gui;
 mod hosts;
 mod proxy;
 mod sysproxy;
@@ -21,7 +22,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Chạy proxy HTTP/HTTPS cục bộ (mặc định)
+    /// Chạy proxy HTTP/HTTPS cục bộ
     Proxy {
         /// Cổng lắng nghe
         #[arg(short, long, default_value_t = 8899)]
@@ -70,6 +71,8 @@ enum Cmd {
     },
     /// Kiểm tra xem Steam đang bị chặn kiểu gì
     Check,
+    /// Mở giao diện đồ hoạ (mặc định khi chạy không có tham số)
+    Gui,
     /// In nội dung file PAC
     Pac {
         #[arg(short, long, default_value_t = 8899)]
@@ -77,9 +80,42 @@ enum Cmd {
     },
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+/// Chờ tín hiệu dừng: Ctrl+C, hoặc stdin bị đóng khi chạy dưới GUI.
+pub async fn shutdown() {
+    if std::env::var_os(gui::ENV).is_none() {
+        let _ = tokio::signal::ctrl_c().await;
+        return;
+    }
+    let stdin_closed = async {
+        use tokio::io::AsyncReadExt;
+        let mut stdin = tokio::io::stdin();
+        let mut buf = [0u8; 64];
+        while matches!(stdin.read(&mut buf).await, Ok(n) if n > 0) {}
+    };
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {}
+        _ = stdin_closed => {}
+    }
+}
+
+fn main() -> Result<()> {
     let cli = Cli::parse();
+    if matches!(cli.cmd, None | Some(Cmd::Gui)) {
+        let explicit = cli.cmd.is_some();
+        if !explicit {
+            gui::hide_own_console();
+        }
+        match gui::run() {
+            Ok(()) => return Ok(()),
+            Err(e) if explicit => anyhow::bail!("không mở được giao diện: {e}"),
+            // Không có màn hình (máy chủ, SSH…): chạy proxy như trước.
+            Err(e) => eprintln!("Không mở được giao diện ({e}), chạy proxy."),
+        }
+    }
+    tokio::runtime::Runtime::new()?.block_on(run(cli))
+}
+
+async fn run(cli: Cli) -> Result<()> {
     let doh = Arc::new(doh::Doh::new()?);
 
     match cli.cmd.unwrap_or(Cmd::Proxy {
@@ -107,7 +143,7 @@ async fn main() -> Result<()> {
             }
             tokio::select! {
                 r = proxy::run(bind, cfg, doh) => r?,
-                _ = tokio::signal::ctrl_c() => println!("\nĐang thoát..."),
+                _ = shutdown() => println!("\nĐang thoát..."),
             }
             if system {
                 sysproxy::clear();
@@ -125,10 +161,11 @@ async fn main() -> Result<()> {
         Cmd::Dns { bind } => {
             tokio::select! {
                 r = dns::run(bind, doh) => r?,
-                _ = tokio::signal::ctrl_c() => println!("\nĐang thoát..."),
+                _ = shutdown() => println!("\nĐang thoát..."),
             }
         }
         Cmd::Check => check::run(&doh).await,
+        Cmd::Gui => unreachable!(),
         Cmd::Pac { port } => print!("{}", proxy::pac(port)),
     }
     Ok(())

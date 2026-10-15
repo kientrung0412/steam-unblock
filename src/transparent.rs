@@ -134,7 +134,7 @@ pub async fn run(opts: Options, doh: Arc<Doh>) -> Result<()> {
         });
     }
 
-    let _ = tokio::signal::ctrl_c().await;
+    crate::shutdown().await;
     println!("\nĐang thoát...");
     crate::hosts::uninstall()?;
     println!("Đã gỡ tên miền Steam khỏi file hosts.");

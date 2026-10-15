@@ -23,9 +23,21 @@ Push lên GitHub thì workflow `.github/workflows/release.yml` sẽ build sẵn 
 
 ## Sử dụng
 
+### Giao diện (dễ nhất)
+Nhấp đúp `steam-unblock` (hoặc chạy không tham số / `steam-unblock gui`) để mở cửa sổ:
+
+- **Trình duyệt / web Steam**: bấm *Bắt đầu*, tự đặt PAC cho hệ thống; bấm *Dừng* sẽ gỡ.
+- **Steam client**: cần quyền Administrator (trên Windows có nút *Chạy lại bằng Administrator*).
+  Thoát Steam hoàn toàn, bấm *Bắt đầu*, rồi mở lại Steam. Bấm *Dừng* hoặc đóng cửa sổ sẽ trả file hosts như cũ.
+- *Kiểm tra chặn* và *Gỡ hosts* tương ứng với lệnh `check` và `unhosts`.
+
+Không có màn hình (máy chủ, SSH) thì chạy không tham số sẽ tự chạy proxy như trước.
+
+### Dòng lệnh
+
 ```bash
 steam-unblock check          # kiểm tra Steam đang bị chặn kiểu gì
-steam-unblock                # chạy proxy tại 127.0.0.1:8899
+steam-unblock proxy          # chạy proxy tại 127.0.0.1:8899
 steam-unblock proxy --system # chạy proxy và tự cấu hình PAC cho hệ thống (Ctrl+C sẽ gỡ cấu hình)
 steam-unblock hosts          # cho Steam client: file hosts + proxy trong suốt (cần Administrator/sudo)
 steam-unblock unhosts        # gỡ khối tên miền Steam khỏi file hosts nếu lần trước thoát không sạch
